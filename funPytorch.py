@@ -88,7 +88,11 @@ def runTrain(conf, model, optim, dataloaders, verbose=False):
             loss.backward()
             optim.step()
 
-        print(": ", end='', flush=True)
+        if verbose:
+            print(": ", end='', flush=True)
+        # else:
+        #     print(".", end='', flush=True)
+
         trainLoss, trainMetrics = evaluate(conf, model, trainDataloader)
         testLoss, testMetrics = evaluate(conf, model, testDataloader)
 
