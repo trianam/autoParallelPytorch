@@ -25,7 +25,7 @@ for i in range(15):
         "dataset":              'mnist',
         "batchSize":            64,
         "startEpoch":           0,
-        "epochs":               1,#14,
+        "epochs":               14,
         "tensorBoard":          True,
         "modelSave":            "best",
         "path":                 'configTestParallel/{}'.format(i),
