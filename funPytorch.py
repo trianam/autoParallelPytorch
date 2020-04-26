@@ -61,8 +61,8 @@ def evaluate(conf, model, dataloader):
         return [(runningLoss / len(dataloader)), runningMetrics]
 
 def runTrain(conf, model, optim, dataloaders, verbose=False):
-    trainDataloader = dataloaders['train']
-    testDataloader = dataloaders['test']
+    fileLast = os.path.join("files", conf.path, "models", "last.pt")
+    fileBest = os.path.join("files", conf.path, "models", "best.pt")
 
     device = next(model.parameters()).device
 
@@ -72,12 +72,13 @@ def runTrain(conf, model, optim, dataloaders, verbose=False):
     if not os.path.exists(os.path.join("files",conf.path,"models")):
         os.makedirs(os.path.join("files",conf.path,"models"))
 
+    bestMetric = None
     for epoch in range(conf.startEpoch, conf.startEpoch+conf.epochs):
         if verbose:
             print("epoch {}".format(epoch), end='', flush=True)
 
         model.train()
-        for batchIndex, data in enumerate(trainDataloader):
+        for batchIndex, data in enumerate(dataloaders['train']):
             X,y = data
             X,y = X.to(device), y.to(device)
 
@@ -93,32 +94,29 @@ def runTrain(conf, model, optim, dataloaders, verbose=False):
         # else:
         #     print(".", end='', flush=True)
 
-        trainLoss, trainMetrics = evaluate(conf, model, trainDataloader)
-        testLoss, testMetrics = evaluate(conf, model, testDataloader)
+        losses = {}
+        metrics = {}
+        for d in dataloaders:
+            losses[d],metrics[d] = evaluate(conf, model, dataloaders[d])
+
+        metrics = {
+            k: {
+                d: metrics[d][k] for d in metrics
+            } for k in metrics['train']}  # same keys for train, valid and test
 
         if verbose:
-            print("train loss {}; test loss {}".format(trainLoss, testLoss), end='', flush=True)
-            for k in trainMetrics:
-                print("; train {} {}".format(k, trainMetrics[k]), end='', flush=True)
-            for k in testMetrics:
-                print("; test {} {}".format(k, testMetrics[k]), end='', flush=True)
+            first = True
+            for d in losses:
+                if not first:
+                    print("; ", end='', flush=True)
+                first = False
+                print("{} loss {:.4f}".format(d, losses[d]), end='', flush=True)
+            for k in metrics:
+                for d in metrics[k]:
+                    print("; {} {} {:.4f}".format(d, k, metrics[k][d]), end='', flush=True)
             print("", flush=True)
 
-        writerDictLoss = {
-            'train': trainLoss,
-            'test': testLoss,
-            }
-
-        writerDictMetrics = {}
-        for k in trainMetrics: #same keys for train and valid
-            writerDictMetrics[k] = {
-                'train': trainMetrics[k],
-                'test': testMetrics[k],
-                }
-
         #save always last
-        fileLast = os.path.join("files",conf.path,"models","last.pt")
-
         if os.path.isfile(fileLast):
             os.remove(fileLast)
 
@@ -128,14 +126,28 @@ def runTrain(conf, model, optim, dataloaders, verbose=False):
             'epoch': epoch
         }, fileLast)
 
+        #save best if necessary
+        if bestMetric is None or metrics[conf.checkMetric]['valid'] > bestMetric:
+            bestMetric = metrics[conf.checkMetric]['valid']
+
+            if os.path.isfile(fileBest):
+                os.remove(fileBest)
+
+            torch.save({
+            'model_state_dict': model.state_dict(),
+            'optim_state_dict': optim.state_dict(),
+            'epoch': epoch
+            }, fileBest)
+
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
             if conf.tensorBoard:
-                writer.add_scalars('loss', writerDictLoss, epoch)
+                writer.add_scalars('loss', losses, epoch)
 
-                for k in writerDictMetrics:
-                    writer.add_scalars(k, writerDictMetrics[k], epoch)
+                for k in metrics:
+                    writer.add_scalars(k, metrics[k], epoch)
 
     time.sleep(120) #time to write tensorboard
 

@@ -10,9 +10,9 @@ configTest = Conf({
         "startEpoch":           0,
         "epochs":               14,
         "tensorBoard":          True,
-        "modelSave":            "best",
+        "checkMetric":          "accuracy",
         "path":                 'configTest',
-        "modelLoad":            'last.pt',
+        "modelLoad":            'best.pt',
     })
 
 configTestParallel = {}
@@ -27,7 +27,7 @@ for i in range(15):
         "startEpoch":           0,
         "epochs":               14,
         "tensorBoard":          True,
-        "modelSave":            "best",
+        "checkMetric":          "accuracy",
         "path":                 'configTestParallel/{}'.format(i),
-        "modelLoad":            'last.pt',
+        "modelLoad":            'best.pt',
     })
