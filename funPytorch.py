@@ -60,7 +60,7 @@ def evaluate(conf, model, dataloader):
 
         return [(runningLoss / len(dataloader)), runningMetrics]
 
-def runTrain(conf, model, optim, dataloaders, verbose=False):
+def runTrain(conf, model, optim, dataloaders, returnValidMetric=False, verbose=False):
     fileLast = os.path.join("files", conf.path, "models", "last.pt")
     fileBest = os.path.join("files", conf.path, "models", "best.pt")
 
@@ -73,6 +73,7 @@ def runTrain(conf, model, optim, dataloaders, verbose=False):
         os.makedirs(os.path.join("files",conf.path,"models"))
 
     bestMetric = None
+    bestMetricEpoch = 0
     for epoch in range(conf.startEpoch, conf.startEpoch+conf.epochs):
         if verbose:
             print("epoch {}".format(epoch), end='', flush=True)
@@ -129,6 +130,7 @@ def runTrain(conf, model, optim, dataloaders, verbose=False):
         #save best if necessary
         if bestMetric is None or metrics[conf.checkMetric]['valid'] > bestMetric:
             bestMetric = metrics[conf.checkMetric]['valid']
+            bestMetricEpoch = epoch
 
             if os.path.isfile(fileBest):
                 os.remove(fileBest)
@@ -149,5 +151,11 @@ def runTrain(conf, model, optim, dataloaders, verbose=False):
                 for k in metrics:
                     writer.add_scalars(k, metrics[k], epoch)
 
+        if not conf.patience is None and epoch-bestMetricEpoch >= conf.patience:
+            break
+
     time.sleep(120) #time to write tensorboard
+
+    if returnValidMetric:
+        return bestMetric
 
