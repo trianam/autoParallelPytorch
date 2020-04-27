@@ -8,6 +8,9 @@ import torch.nn.functional as F
 import torchsummary
 from tensorboardX import SummaryWriter
 
+from ray import tune
+from filelock import FileLock
+
 from collections import defaultdict
 
 import loaders
@@ -60,17 +63,19 @@ def evaluate(conf, model, dataloader):
 
         return [(runningLoss / len(dataloader)), runningMetrics]
 
-def runTrain(conf, model, optim, dataloaders, returnValidMetric=False, verbose=False):
+def runTrain(conf, model, optim, dataloaders, returnValidMetric=False, tuneLog=False, verbose=False):
     fileLast = os.path.join("files", conf.path, "models", "last.pt")
     fileBest = os.path.join("files", conf.path, "models", "best.pt")
 
     device = next(model.parameters()).device
 
     if conf.tensorBoard:
-        writer = SummaryWriter(os.path.join("files",conf.path,"tensorBoard"), flush_secs=60)
+        with FileLock(os.path.expanduser("~/data.lock")):
+            writer = SummaryWriter(os.path.join("files",conf.path,"tensorBoard"), flush_secs=60)
 
-    if not os.path.exists(os.path.join("files",conf.path,"models")):
-        os.makedirs(os.path.join("files",conf.path,"models"))
+    with FileLock(os.path.expanduser("~/data.lock")):
+        if not os.path.exists(os.path.join("files",conf.path,"models")):
+            os.makedirs(os.path.join("files",conf.path,"models"))
 
     bestMetric = None
     bestMetricEpoch = 0
@@ -105,6 +110,9 @@ def runTrain(conf, model, optim, dataloaders, returnValidMetric=False, verbose=F
                 d: metrics[d][k] for d in metrics
             } for k in metrics['train']}  # same keys for train, valid and test
 
+        if tuneLog:
+            tune.track.log(metric=metrics[conf.checkMetric]['valid'])
+
         if verbose:
             first = True
             for d in losses:
@@ -118,38 +126,40 @@ def runTrain(conf, model, optim, dataloaders, returnValidMetric=False, verbose=F
             print("", flush=True)
 
         #save always last
-        if os.path.isfile(fileLast):
-            os.remove(fileLast)
+        with FileLock(os.path.expanduser("~/data.lock")):
+            if os.path.isfile(fileLast):
+                os.remove(fileLast)
 
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'optim_state_dict': optim.state_dict(),
-            'epoch': epoch
-        }, fileLast)
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'optim_state_dict': optim.state_dict(),
+                'epoch': epoch
+            }, fileLast)
 
         #save best if necessary
         if bestMetric is None or metrics[conf.checkMetric]['valid'] > bestMetric:
             bestMetric = metrics[conf.checkMetric]['valid']
             bestMetricEpoch = epoch
 
-            if os.path.isfile(fileBest):
-                os.remove(fileBest)
+            with FileLock(os.path.expanduser("~/data.lock")):
+                if os.path.isfile(fileBest):
+                    os.remove(fileBest)
 
-            torch.save({
-            'model_state_dict': model.state_dict(),
-            'optim_state_dict': optim.state_dict(),
-            'epoch': epoch
-            }, fileBest)
+                torch.save({
+                'model_state_dict': model.state_dict(),
+                'optim_state_dict': optim.state_dict(),
+                'epoch': epoch
+                }, fileBest)
 
+        if conf.tensorBoard:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+                with FileLock(os.path.expanduser("~/data.lock")):
+                    writer.add_scalars('loss', losses, epoch)
 
-            if conf.tensorBoard:
-                writer.add_scalars('loss', losses, epoch)
-
-                for k in metrics:
-                    writer.add_scalars(k, metrics[k], epoch)
+                    for k in metrics:
+                        writer.add_scalars(k, metrics[k], epoch)
 
         if not conf.patience is None and epoch-bestMetricEpoch >= conf.patience:
             break
